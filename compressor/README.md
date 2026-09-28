@@ -9,6 +9,8 @@ Compresor masivo de video de alto rendimiento diseñado para reducir el tamaño 
 - **Aceleración por Hardware NVENC (NVIDIA RTX):** Aprovecha los codificadores NVENC dedicados de tarjetas gráficas modernas (GeForce RTX 30/40/50 Series), procesando videos 1080p a más de 300-500 FPS (~2.5 segundos por video).
 - **Fallback Automático a CPU:** Si no se detecta una GPU NVIDIA compatible, cambia de forma transparente al codificador multihilo de alta eficiencia `libx265`.
 - **Audio Intacto (Stream Copy):** Copia directamente el flujo de audio original (`-c:a copy` / `-map 0:a?`) sin recodificar ni degradar la calidad sonora, ahorrando tiempo de procesamiento.
+- **Memoria de Progreso y Reanudación Automática:** Si la compresión se cancela o interrumpe (ej. `Ctrl+C` o cierre inesperado), el progreso se guarda en tiempo real en `.compression_history.json`. Al volver a ejecutar, salta al instante los videos ya procesados.
+- **Detección Inteligente por Códec:** Analiza el flujo de video con `ffprobe`; si detecta que un archivo ya está en formato `HEVC` (H.265) o `AV1`, lo omite automáticamente sin gastar recursos.
 - **Triple Blindaje de Seguridad e Integridad:**
   1. **Archivo Temporal Aislado (`.tmp.mp4`):** El archivo original jamás se modifica durante la codificación.
   2. **Validación Exhaustiva con `ffprobe`:** Comprueba la integridad del contenedor y valida que la duración del video coincida con el original con un margen de tolerancia estricto (±1.5s).

@@ -154,6 +154,8 @@ Diseñado para optimizar colecciones masivas de video reduciendo su peso entre u
 
 - **Aceleración Extrema:** Utiliza núcleos NVIDIA NVENC (arquitecturas Ada Lovelace y Blackwell como RTX 5070), codificando videos a más de 300 FPS (~2.5 segundos por video de varios minutos).
 - **Audio Intacto (Stream Copy):** El canal de audio original no se recodifica ni degrada; se transfiere idéntico bit por bit.
+- **Memoria de Reanudación Automática:** Si se cancela o interrumpe (Ctrl+C, corte eléctrico), registra el progreso en `.compression_history.json` para reanudar exactamente donde se quedó.
+- **Detección por Códec:** Omite automáticamente videos que ya fueron codificados en HEVC/H.265 o AV1 para nunca re-comprimir innecesariamente.
 - **Triple Validación de Integridad:**
   1. Escribe a un archivo temporal `.tmp.mp4`.
   2. Valida fotogramas y duración con `ffprobe` (margen de tolerancia estricto de ±1.5s).
