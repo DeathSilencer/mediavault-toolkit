@@ -16,7 +16,26 @@ import time
 import json
 import shutil
 import subprocess
+import argparse
 from pathlib import Path
+
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".compressor_config.json")
+
+def load_compressor_config() -> dict:
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_compressor_config(cfg: dict):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
 
 # Auto-instalar dependencias básicas si faltan
 for pkg in ["rich"]:
@@ -245,6 +264,15 @@ def compress_video(
         return False, str(e)
 
 def main():
+    parser = argparse.ArgumentParser(description="Compresor Masivo de Video por Hardware (GPU NVENC / CPU)")
+    parser.add_argument("--folder", "-f", default=None, help="Carpeta que contiene los videos a procesar")
+    parser.add_argument("--cq", type=int, choices=[27, 29, 31], default=None, help="Nivel de compresión CQ (27: Máxima calidad, 29: Óptimo, 31: Máximo ahorro)")
+    parser.add_argument("--mode", type=int, choices=[1, 2], default=None, help="1: Reemplazar originales, 2: Guardar en subcarpeta 'Comprimidos'")
+    parser.add_argument("--yes", "-y", action="store_true", help="Iniciar compresión sin confirmación interactiva")
+    args = parser.parse_args()
+
+    cfg = load_compressor_config()
+
     console.print(Panel(
         "[bold cyan]🛡️ COMPRESOR MASIVO DE VIDEO CON MEMORIA Y REANUDACIÓN INTELIGENTE[/bold cyan]\n"
         "[white]• [bold green]Memoria de progreso:[/bold green] Recuerda videos ya comprimidos si se cancela o interrumpe.\n"
@@ -262,15 +290,24 @@ def main():
         console.print("[bold yellow]⚠️ No se detectó NVENC. Se usará CPU multihilo (libx265).[/bold yellow]\n")
 
     # 2. Solicitar carpeta
-    default_dir = r"D:\Armando\$1 Corel\$ 2FBK\Fotos cuentas\Alma\Nueva Carpeta\Models\Nueva carpeta\Nueva carpeta"
-    console.print(f"[bold yellow]Carpeta a procesar[/bold yellow] (Presiona [bold green]Enter[/bold green] para usar la ruta por defecto):")
-    console.print(f"[dim]{default_dir}[/dim]")
-    user_input = input("Ruta > ").strip().strip('"').strip("'")
-    target_dir = user_input if user_input else default_dir
+    target_dir = args.folder
+    if not target_dir:
+        saved_folder = cfg.get("last_folder", "")
+        if saved_folder and os.path.exists(saved_folder):
+            console.print(f"[bold yellow]Carpeta a procesar[/bold yellow] (Presiona [bold green]Enter[/bold green] para usar la ruta guardada):")
+            console.print(f"[dim]{saved_folder}[/dim]")
+            user_input = input("Ruta > ").strip().strip('"').strip("'")
+            target_dir = user_input if user_input else saved_folder
+        else:
+            console.print(f"[bold yellow]Carpeta a procesar:[/bold yellow]")
+            target_dir = input("Ruta > ").strip().strip('"').strip("'")
 
-    if not os.path.exists(target_dir):
+    if not target_dir or not os.path.exists(target_dir):
         console.print(f"[bold red]❌ La carpeta especificada no existe: {target_dir}[/bold red]")
         return
+
+    cfg["last_folder"] = target_dir
+    save_compressor_config(cfg)
 
     # Cargar historial existente
     history = load_history(target_dir)
@@ -338,35 +375,43 @@ def main():
     console.print(f"📉 [bold yellow]Orden de procesamiento:[/bold yellow] Del más grande ([bold red]{format_bytes(max_file_size)}[/bold red]) al más chico ([bold green]{format_bytes(min_file_size)}[/bold green]).\n")
 
     # 4. Preguntar Nivel de Compresión
-    console.print(Panel(
-        "[bold yellow]Selecciona el Perfil de Compresión:[/bold yellow]\n\n"
-        "[bold green]1.[/bold green] [bold white]Óptimo / Recomendado (CQ 29)[/bold white] ➔ Ahorro ~50-60% del espacio con nitidez 100% cristalina.\n"
-        "[bold green]2.[/bold green] [bold white]Máxima Fidelidad (CQ 27)[/bold white] ➔ Ahorro ~40-48% del espacio (Calidad indistinguible del máster).\n"
-        "[bold green]3.[/bold green] [bold white]Máximo Ahorro (CQ 31)[/bold white] ➔ Ahorro ~65-70% del espacio.\n",
-        title="Niveles de Calidad H.265 / HEVC",
-        border_style="blue"
-    ))
-    opt_quality = input("Selecciona una opción [1/2/3, default: 1]: ").strip()
-    if opt_quality == "2":
-        chosen_cq = 27
-        profile_name = "Máxima Fidelidad (CQ 27)"
-    elif opt_quality == "3":
-        chosen_cq = 31
-        profile_name = "Máximo Ahorro (CQ 31)"
+    if args.cq:
+        chosen_cq = args.cq
+        profile_names = {27: "Máxima Fidelidad (CQ 27)", 29: "Óptimo / Recomendado (CQ 29)", 31: "Máximo Ahorro (CQ 31)"}
+        profile_name = profile_names.get(chosen_cq, f"Personalizado (CQ {chosen_cq})")
     else:
-        chosen_cq = 29
-        profile_name = "Óptimo / Recomendado (CQ 29)"
+        console.print(Panel(
+            "[bold yellow]Selecciona el Perfil de Compresión:[/bold yellow]\n\n"
+            "[bold green]1.[/bold green] [bold white]Óptimo / Recomendado (CQ 29)[/bold white] ➔ Ahorro ~50-60% del espacio con nitidez 100% cristalina.\n"
+            "[bold green]2.[/bold green] [bold white]Máxima Fidelidad (CQ 27)[/bold white] ➔ Ahorro ~40-48% del espacio (Calidad indistinguible del máster).\n"
+            "[bold green]3.[/bold green] [bold white]Máximo Ahorro (CQ 31)[/bold white] ➔ Ahorro ~65-70% del espacio.\n",
+            title="Niveles de Calidad H.265 / HEVC",
+            border_style="blue"
+        ))
+        opt_quality = input("Selecciona una opción [1/2/3, default: 1]: ").strip()
+        if opt_quality == "2":
+            chosen_cq = 27
+            profile_name = "Máxima Fidelidad (CQ 27)"
+        elif opt_quality == "3":
+            chosen_cq = 31
+            profile_name = "Máximo Ahorro (CQ 31)"
+        else:
+            chosen_cq = 29
+            profile_name = "Óptimo / Recomendado (CQ 29)"
 
     # 5. Preguntar Modo de Destino
-    console.print(Panel(
-        "[bold yellow]¿Cómo deseas guardar los videos?:[/bold yellow]\n\n"
-        f"[bold green]1.[/bold green] [bold white]Reemplazar originales directamente[/bold white] ➔ Libera espacio de inmediato en Disco (Con verificación previa).\n"
-        f"[bold green]2.[/bold green] [bold white]Guardar en subcarpeta 'Comprimidos'[/bold white] ➔ Conserva los originales para comparar primero.\n",
-        title="Modo de Salida",
-        border_style="blue"
-    ))
-    opt_mode = input("Selecciona una opción [1/2, default: 1]: ").strip()
-    replace_originals = (opt_mode != "2")
+    if args.mode is not None:
+        replace_originals = (args.mode != 2)
+    else:
+        console.print(Panel(
+            "[bold yellow]¿Cómo deseas guardar los videos?:[/bold yellow]\n\n"
+            f"[bold green]1.[/bold green] [bold white]Reemplazar originales directamente[/bold white] ➔ Libera espacio de inmediato en Disco (Con verificación previa).\n"
+            f"[bold green]2.[/bold green] [bold white]Guardar en subcarpeta 'Comprimidos'[/bold white] ➔ Conserva los originales para comparar primero.\n",
+            title="Modo de Salida",
+            border_style="blue"
+        ))
+        opt_mode = input("Selecciona una opción [1/2, default: 1]: ").strip()
+        replace_originals = (opt_mode != "2")
 
     out_folder = None
     if not replace_originals:
@@ -377,11 +422,12 @@ def main():
         console.print("⚠️ [bold yellow]Reemplazo directo activo: Solo se reemplaza cada video si supera con éxito la prueba de integridad.[/bold yellow]\n")
 
     # Confirmación final
-    console.print(f"[bold green]¿Iniciar compresión de {len(to_compress)} videos usando perfil '{profile_name}'? (S/N):[/bold green] ", end="")
-    confirm = input().strip().lower()
-    if confirm not in ["s", "si", "y", "yes", ""]:
-        console.print("[yellow]Operación cancelada.[/yellow]")
-        return
+    if not args.yes:
+        console.print(f"[bold green]¿Iniciar compresión de {len(to_compress)} videos usando perfil '{profile_name}'? (S/N):[/bold green] ", end="")
+        confirm = input().strip().lower()
+        if confirm not in ["s", "si", "y", "yes", ""]:
+            console.print("[yellow]Operación cancelada por el usuario.[/yellow]")
+            return
 
     # Iniciar compresión con barra de progreso
     console.print(f"\n[bold green]🚀 Procesando videos pendientes...[/bold green]\n")

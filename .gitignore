@@ -31,6 +31,14 @@ wheels/
 *.ytdl
 *.crdownload
 
+# Archivos de configuración local y credenciales privadas del usuario
+*config*.json
+.*config*.json
+*.history.json
+.*history.json
+.bunkr_upload_history.json
+.compression_history.json
+
 # Binarios locales portables descargados automáticamente
 bin/
 *.zip

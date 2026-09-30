@@ -183,11 +183,14 @@ launcher.bat (Opción 3)
 
 ---
 
-### 4. ☁️ Bunkr Ultra Uploader (Reintentos Infinitos)
+### 4. ☁️ Bunkr Ultra Uploader (Universal y Personalizable)
 *Ubicación:* [`bunkr/`](bunkr/)
 
-Diseñado para resolver los problemas de congelamiento (0%), caída de sockets y errores de servidor al subir colecciones a **Bunkr.cr**.
+Diseñado para resolver los problemas de congelamiento (0%), caída de sockets y errores de servidor al subir colecciones a **Bunkr.cr**, 100% dinámico y personalizable:
 
+- **100% Personalizable (Cero Hardcodeo):** Token, álbumes y rutas completamente interactivos. Soporta argumentos CLI (`--token`, `--album`, `--folder`, `--yes`).
+- **Memoria de Preferencias:** Guarda la configuración en `.bunkr_config.json` (ignorado por Git) para que en las siguientes ejecuciones solo debas presionar `[Enter]`.
+- **Gestor de Álbumes en Vivo:** Lista automáticamente tus álbumes de Bunkr, permite buscar por nombre/ID o crear un nuevo álbum al instante.
 - **Orden Descendente:** Prioriza los archivos más pesados primero (uno por uno).
 - **Protocolo de Chunks (95 MB):** Divide los archivos en bloques estándar de 95 MB para máxima compatibilidad con los nodos de Bunkr.
 - **Reintentos Infinitos Anti-Error:** Si un bloque se congela o da error (500/502/timeout), el bot reintenta automáticamente ese bloque hasta que se complete al 100%.

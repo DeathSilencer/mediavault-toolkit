@@ -18,7 +18,7 @@ echo ========================================================
 set /p OPCION="Selecciona una opción [1-5]: "
 
 if "%OPCION%"=="1" (
-    call "%~dp0iniciar_descarga.bat"
+    call "%~dp0gofile\iniciar_descarga.bat"
     goto MENU
 )
 if "%OPCION%"=="2" (
@@ -26,11 +26,11 @@ if "%OPCION%"=="2" (
     goto MENU
 )
 if "%OPCION%"=="3" (
-    call "%~dp0comprimir_videos.bat"
+    call "%~dp0compressor\comprimir_videos.bat"
     goto MENU
 )
 if "%OPCION%"=="4" (
-    call "%~dp0subir_bunkr.bat"
+    call "%~dp0bunkr\subir_bunkr.bat"
     goto MENU
 )
 if "%OPCION%"=="5" (

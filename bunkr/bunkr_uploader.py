@@ -1,9 +1,12 @@
 """
-Bunkr Ultra Uploader Bot (Subida Inteligente con Reintentos Infinitos)
+Bunkr Ultra Uploader Bot (Subida Inteligente Universal y Personalizable)
 ----------------------------------------------------------------------
+- Cero valores hardcodeados: Token, álbum y carpeta 100% configurables e interactivos.
+- Memoria de configuración local (.bunkr_config.json) para no tener que escribir todo de nuevo.
+- Consulta dinámica de álbumes en tu cuenta Bunkr (seleccionar, buscar o crear nuevo álbum).
 - Sube videos automáticamente a Bunkr.cr asignándolos al álbum especificado.
 - Orden de subida: Del más grande al más chico (uno por uno).
-- Protocolo por chunks (95 MB) con reintentos automáticos si se congela o da error.
+- Protocolo por chunks (95 MB) con reintentos infinitos si se congela o da error.
 - Detección de servidor activo con rotación automática de nodos caídos.
 - Memoria de subida (.bunkr_upload_history.json) y sincronización con el álbum online para evitar duplicados.
 """
@@ -14,6 +17,7 @@ import time
 import json
 import uuid
 import shutil
+import argparse
 import subprocess
 import requests
 
@@ -46,12 +50,27 @@ from rich.progress import (
 
 console = Console()
 
-DEFAULT_TOKEN = "Yf4UTVsscXzs4uClNAh50CKdy4wBWdmkU73QN0NVEprnSXnC0BQqVAchIehJU5kc"
-DEFAULT_ALBUM_ID = 628942
-DEFAULT_ALBUM_NAME = "SoyMafe By:@DeathSilencer"
-DEFAULT_ALBUM_SLUG = "OKS37rXx"
-DEFAULT_FOLDER = r"D:\Armando\$1 Corel\$ 2FBK\Fotos cuentas\Alma\Nueva Carpeta\Models\Nueva carpeta\Nueva carpeta"
 CHUNK_SIZE = 95 * 1000 * 1000  # 95 MB por bloque estándar de Bunkr
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bunkr_config.json")
+
+
+def load_bunkr_config() -> dict:
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def save_bunkr_config(cfg: dict):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
 
 def format_bytes(bytes_val: float) -> str:
     for unit in ["B", "KB", "MB", "GB", "TB"]:
@@ -59,6 +78,55 @@ def format_bytes(bytes_val: float) -> str:
             return f"{bytes_val:.2f} {unit}"
         bytes_val /= 1024.0
     return f"{bytes_val:.2f} PB"
+
+
+def mask_token(t: str) -> str:
+    if not t or len(t) < 10:
+        return "..."
+    return f"{t[:4]}...{t[-4:]}"
+
+
+def validate_token(token: str) -> bool:
+    """Verifica si el token es válido consultando la API de Bunkr."""
+    headers = {"token": token, "User-Agent": "Mozilla/5.0"}
+    try:
+        r = requests.get("https://dash.bunkr.cr/api/albums/0", headers=headers, timeout=10)
+        return r.status_code == 200 and r.json().get("success") is True
+    except Exception:
+        return False
+
+
+def fetch_all_user_albums(token: str) -> list[dict]:
+    """Obtiene la lista completa de álbumes de la cuenta del usuario en Bunkr."""
+    albums = []
+    headers = {"token": token, "User-Agent": "Mozilla/5.0"}
+    for page in range(15):  # Soporta hasta 750 álbumes
+        try:
+            r = requests.get(f"https://dash.bunkr.cr/api/albums/{page}", headers=headers, timeout=12)
+            if r.status_code == 200:
+                data = r.json()
+                batch = data.get("albums", [])
+                if not batch:
+                    break
+                albums.extend(batch)
+            else:
+                break
+        except Exception:
+            break
+    return albums
+
+
+def create_user_album(token: str, album_name: str) -> int | None:
+    """Crea un nuevo álbum en Bunkr y devuelve su ID numérico."""
+    headers = {"token": token, "User-Agent": "Mozilla/5.0"}
+    try:
+        r = requests.post("https://dash.bunkr.cr/api/albums", headers=headers, json={"name": album_name}, timeout=15)
+        if r.status_code == 200 and r.json().get("success"):
+            return r.json().get("id")
+    except Exception:
+        pass
+    return None
+
 
 def get_active_node(token: str, max_retries: int = 5) -> str:
     """Obtiene un nodo de subida activo desde la API de Bunkr."""
@@ -70,9 +138,10 @@ def get_active_node(token: str, max_retries: int = 5) -> str:
                 data = r.json()
                 if data.get("success") and "url" in data:
                     return data["url"]
-        except Exception as e:
+        except Exception:
             time.sleep(2)
     return "https://n50.scdn.st/api/upload"
+
 
 def load_local_history(folder_path: str) -> dict:
     hist_file = os.path.join(folder_path, ".bunkr_upload_history.json")
@@ -84,6 +153,7 @@ def load_local_history(folder_path: str) -> dict:
             pass
     return {}
 
+
 def save_local_history(folder_path: str, history: dict):
     hist_file = os.path.join(folder_path, ".bunkr_upload_history.json")
     try:
@@ -91,6 +161,7 @@ def save_local_history(folder_path: str, history: dict):
             json.dump(history, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
+
 
 def fetch_online_album_files(token: str, album_id: int) -> set:
     """Consulta la API de Bunkr para ver qué archivos ya existen en el álbum."""
@@ -106,6 +177,7 @@ def fetch_online_album_files(token: str, album_id: int) -> set:
         pass
     return uploaded_names
 
+
 def upload_single_file(node_url: str, token: str, album_id: int, file_path: str) -> bool:
     """Sube un archivo menor a 95 MB de forma directa en una sola petición."""
     file_name = os.path.basename(file_path)
@@ -118,6 +190,7 @@ def upload_single_file(node_url: str, token: str, album_id: int, file_path: str)
         files = {"files[]": (file_name, f, "video/mp4")}
         r = requests.post(node_url, headers=headers, files=files, timeout=180)
         return r.status_code == 200 and r.json().get("success", False)
+
 
 def upload_chunked_file(
     node_url: str,
@@ -149,80 +222,282 @@ def upload_chunked_file(
                 "dztotalchunkcount": total_chunks,
                 "dzchunkbyteoffset": offset
             }
-            files = {"files[]": (file_name, chunk_data, "video/mp4")}
 
-            # Bucle de reintentos infinitos para este chunk si se congela o da error
             chunk_success = False
-            chunk_attempts = 0
+            attempts = 0
 
             while not chunk_success:
-                chunk_attempts += 1
+                attempts += 1
                 try:
-                    if progress_callback:
-                        progress_callback(chunk_idx + 1, total_chunks, len(chunk_data), file_size, chunk_attempts)
+                    files = {"files[]": (file_name, chunk_data, "video/mp4")}
+                    r = requests.post(
+                        node_url,
+                        headers=headers,
+                        data=fields,
+                        files=files,
+                        timeout=180
+                    )
 
-                    r = requests.post(node_url, headers=headers, data=fields, files=files, timeout=180)
-                    if r.status_code == 200 and r.json().get("success", False):
-                        chunk_success = True
-                    else:
-                        console.print(f"[yellow]  ⚠️ Chunk {chunk_idx + 1}/{total_chunks} falló (código {r.status_code}). Reintentando en 3s...[/yellow]")
+                    if r.status_code == 200:
+                        res_json = r.json()
+                        if res_json.get("success", False):
+                            chunk_success = True
+                            if progress_callback:
+                                progress_callback(chunk_idx + 1, total_chunks, len(chunk_data), file_size, attempts)
+                            break
+                        else:
+                            time.sleep(3)
+                    elif r.status_code in [500, 502, 503, 504, 404]:
                         time.sleep(3)
-                except Exception as e:
-                    console.print(f"[yellow]  ⚠️ Error de red en chunk {chunk_idx + 1}/{total_chunks} ({e}). Reintentando en 3s...[/yellow]")
-                    time.sleep(3)
-                    # Si falla más de 3 veces, refrescar nodo
-                    if chunk_attempts % 3 == 0:
-                        node_url = get_active_node(token)
-                        console.print(f"[dim]  🔄 Servidor de subida actualizado: {node_url}[/dim]")
+                        if attempts % 3 == 0:
+                            node_url = get_active_node(token)
+                    else:
+                        time.sleep(3)
 
-    # Todos los chunks subidos con éxito -> Finalizar y asignar al álbum
-    finish_headers = {
-        "token": token,
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0"
-    }
-    finish_body = {
+                except Exception:
+                    time.sleep(3)
+                    if attempts % 3 == 0:
+                        node_url = get_active_node(token)
+
+            if not chunk_success:
+                return False, node_url
+
+    # Finalizar chunks
+    finish_url = f"{node_url}/finishchunks"
+    finish_payload = {
         "files": [
             {
                 "uuid": file_uuid,
                 "original": file_name,
                 "type": "video/mp4",
-                "albumid": album_id
+                "albumid": int(album_id)
             }
         ]
     }
 
-    for _ in range(5):
+    finish_headers = {
+        "token": token,
+        "User-Agent": "Mozilla/5.0",
+        "Content-Type": "application/json"
+    }
+
+    for finish_attempt in range(1, 10):
         try:
-            rf = requests.post(f"{node_url}/finishchunks", headers=finish_headers, json=finish_body, timeout=60)
-            if rf.status_code == 200 and rf.json().get("success", False):
+            r = requests.post(finish_url, headers=finish_headers, json=finish_payload, timeout=120)
+            if r.status_code == 200 and r.json().get("success", False):
                 return True, node_url
+            time.sleep(3)
         except Exception:
-            time.sleep(2)
+            time.sleep(3)
 
     return False, node_url
 
+
+def select_album_flow(token: str, cfg: dict, arg_album: str = None) -> tuple[int, str]:
+    """Flujo interactivo o por parámetro para seleccionar o crear el álbum de destino."""
+    all_albums = fetch_all_user_albums(token)
+
+    # 1. Si se pasó por argumento CLI
+    if arg_album:
+        arg_clean = arg_album.strip()
+        # Verificar si es un ID numérico
+        if arg_clean.isdigit():
+            aid = int(arg_clean)
+            for a in all_albums:
+                if a["id"] == aid:
+                    return aid, a["name"]
+            return aid, f"Álbum #{aid}"
+
+        # Verificar si es enlace con slug (ej: bunkr.cr/a/OKS37rXx)
+        slug_match = arg_clean.split("/a/")[-1].split("?")[0].strip("/")
+        for a in all_albums:
+            if a.get("identifier") == slug_match or a.get("identifier") == arg_clean:
+                return a["id"], a["name"]
+
+        # Buscar coincidencia por nombre
+        for a in all_albums:
+            if arg_clean.lower() in a["name"].lower():
+                return a["id"], a["name"]
+
+        # Si no existe, preguntar si desea crearlo con ese nombre
+        console.print(f"[yellow]El álbum '{arg_album}' no fue encontrado en tu cuenta.[/yellow]")
+        create_it = input("¿Deseas crearlo ahora mismo con ese nombre? (S/N): ").strip().lower()
+        if create_it in ["s", "si", "y", "yes"]:
+            nid = create_user_album(token, arg_album)
+            if nid:
+                console.print(f"[bold green]✅ Álbum '{arg_album}' creado con éxito (ID: {nid}).[/bold green]")
+                return nid, arg_album
+            else:
+                console.print("[red]❌ Error al crear el álbum en Bunkr.[/red]")
+
+    # 2. Flujo Interactivo
+    saved_album_id = cfg.get("last_album_id")
+    saved_album_name = cfg.get("last_album_name", f"Álbum #{saved_album_id}")
+
+    console.print("\n" + "─"*70)
+    console.print("[bold cyan]📂 SELECCIÓN DEL ÁLBUM DESTINO EN BUNKR[/bold cyan]")
+
+    default_choice = "1"
+    if saved_album_id:
+        console.print(f"[bold green]1.[/bold green] Usar álbum guardado: [bold white]{saved_album_name}[/bold white] [dim](ID: {saved_album_id})[/dim] [green][Recomendado - Presiona ENTER][/green]")
+        console.print(f"[bold green]2.[/bold green] Elegir de mis álbumes en Bunkr ({len(all_albums)} encontrados)")
+        console.print(f"[bold green]3.[/bold green] Ingresar ID o enlace directo de otro álbum")
+        console.print(f"[bold green]4.[/bold green] Crear un nuevo álbum ahora mismo")
+    else:
+        console.print(f"[bold green]1.[/bold green] Elegir de mis álbumes en Bunkr ({len(all_albums)} encontrados)")
+        console.print(f"[bold green]2.[/bold green] Ingresar ID o enlace directo de un álbum")
+        console.print(f"[bold green]3.[/bold green] Crear un nuevo álbum ahora mismo")
+
+    opt = input("\nSelecciona una opción: ").strip()
+
+    if saved_album_id:
+        if not opt or opt == "1":
+            return saved_album_id, saved_album_name
+        choice = opt
+    else:
+        if not opt or opt == "1":
+            choice = "2"
+        elif opt == "2":
+            choice = "3"
+        else:
+            choice = "4"
+
+    # Opción 2: Mostrar lista de álbumes
+    if choice == "2":
+        if not all_albums:
+            console.print("[yellow]No se encontraron álbumes en tu cuenta. Crea uno nuevo.[/yellow]")
+            choice = "4"
+        else:
+            tbl = Table(title="📁 Tus Álbumes en Bunkr", border_style="cyan")
+            tbl.add_column("#", style="bold yellow", width=4)
+            tbl.add_column("Nombre del Álbum", style="bold white")
+            tbl.add_column("Archivos", style="green")
+            tbl.add_column("Tamaño", style="cyan")
+            tbl.add_column("ID", style="dim")
+
+            for i, alb in enumerate(all_albums[:30], 1):
+                tbl.add_row(
+                    str(i),
+                    alb.get("name", "Sin nombre"),
+                    str(alb.get("uploads", 0)),
+                    format_bytes(alb.get("size", 0)),
+                    str(alb.get("id"))
+                )
+            console.print(tbl)
+            if len(all_albums) > 30:
+                console.print(f"[dim]Mostrando los primeros 30 de {len(all_albums)} álbumes.[/dim]")
+
+            sel_idx = input(f"\nElige el número de álbum [1-{min(len(all_albums), 30)}]: ").strip()
+            if sel_idx.isdigit() and 1 <= int(sel_idx) <= len(all_albums):
+                selected = all_albums[int(sel_idx) - 1]
+                return selected["id"], selected["name"]
+
+    # Opción 3: Ingresar ID o enlace
+    if choice == "3":
+        user_input_album = input("Pega el enlace o ID del álbum: ").strip()
+        slug_clean = user_input_album.split("/a/")[-1].split("?")[0].strip("/")
+        for a in all_albums:
+            if a.get("identifier") == slug_clean or str(a.get("id")) == slug_clean:
+                return a["id"], a["name"]
+        if slug_clean.isdigit():
+            return int(slug_clean), f"Álbum #{slug_clean}"
+
+    # Opción 4: Crear nuevo álbum
+    if choice == "4":
+        new_name = input("Nombre del nuevo álbum a crear en Bunkr: ").strip()
+        if new_name:
+            nid = create_user_album(token, new_name)
+            if nid:
+                console.print(f"[bold green]✅ Álbum '{new_name}' creado con éxito (ID: {nid}).[/bold green]")
+                return nid, new_name
+            else:
+                console.print("[red]❌ No se pudo crear el álbum en la API de Bunkr.[/red]")
+
+    # Fallback seguro
+    if saved_album_id:
+        return saved_album_id, saved_album_name
+    elif all_albums:
+        return all_albums[0]["id"], all_albums[0]["name"]
+    return 0, "Álbum por defecto"
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Bot Subidor Masivo a Bunkr con Reintentos Infinitos")
+    parser.add_argument("--token", "-t", default=None, help="Token de autenticación de Bunkr")
+    parser.add_argument("--album", "-a", default=None, help="ID, enlace o nombre del álbum destino")
+    parser.add_argument("--folder", "-f", default=None, help="Carpeta que contiene los videos a subir")
+    parser.add_argument("--yes", "-y", action="store_true", help="Iniciar subida sin confirmación interactiva")
+    args = parser.parse_args()
+
+    cfg = load_bunkr_config()
+
     console.print(Panel(
-        "[bold cyan]🚀 BOT SUBIDOR MASIVO A BUNKR (REINTENTOS INFINITOS & ANTI-CONGELAMIENTO)[/bold cyan]\n"
-        f"[white]• [bold green]Álbum Objetivo:[/bold green] {DEFAULT_ALBUM_NAME} (ID: {DEFAULT_ALBUM_ID})\n"
-        "• [bold green]Orden de Subida:[/bold green] Del más grande al más chico (uno por uno)\n"
-        "• [bold green]Reintentos Inteligentes:[/bold green] Si un chunk se traba en 0% o da error, reintenta sin parar hasta lograrlo.\n"
-        "• [bold green]Anti-Duplicados:[/bold green] Consulta tu álbum para omitir videos ya subidos.[/white]",
+        "[bold cyan]🚀 BOT SUBIDOR MASIVO A BUNKR (UNIVERSAL & PERSONALIZABLE)[/bold cyan]\n"
+        "[white]• [bold green]100% Configurable:[/bold green] Token, álbum y carpetas sin código hardcodeado.\n"
+        "• [bold green]Memoria Inteligente:[/bold green] Recuerda tus configuraciones con [Enter].\n"
+        "• [bold green]Reintentos Infinitos:[/bold green] Si un chunk se traba o da error, reintenta sin parar.\n"
+        "• [bold green]Anti-Duplicados:[/bold green] Sincroniza con el historial local y con tu álbum en Bunkr.\n"
+        "• [bold green]Orden Eficiente:[/bold green] Sube del video más pesado al más ligero.[/white]",
         border_style="cyan"
     ))
 
-    # 1. Configuración de carpeta
-    console.print(f"[bold yellow]Carpeta de videos[/bold yellow] (Presiona [bold green]Enter[/bold green] para usar la ruta por defecto):")
-    console.print(f"[dim]{DEFAULT_FOLDER}[/dim]")
-    user_input = input("Ruta > ").strip().strip('"').strip("'")
-    target_dir = user_input if user_input else DEFAULT_FOLDER
+    # 1. Configuración de Token
+    token = args.token
+    if not token:
+        saved_tok = cfg.get("token", "")
+        if saved_tok:
+            console.print(f"\n🔑 [bold yellow]Token de Bunkr:[/bold yellow] [dim]{mask_token(saved_tok)}[/dim]")
+            tok_input = input("Presiona ENTER para usar el guardado, o pega uno nuevo: ").strip()
+            token = tok_input if tok_input else saved_tok
+        else:
+            console.print("\n" + "="*70)
+            console.print("[bold yellow]🔑 CONFIGURACIÓN DE TU TOKEN DE BUNKR (Solo una vez)[/bold yellow]")
+            console.print("1. Inicia sesión en [cyan]https://dash.bunkr.cr[/cyan] o [cyan]https://bunkr.cr[/cyan]")
+            console.print("2. Presiona [bold]F12[/bold] -> Pestaña [bold]'Application' (o 'Almacenamiento')[/bold] -> [bold]'Cookies'[/bold]")
+            console.print("3. Copia el valor de la cookie llamada [bold green]'token'[/bold green]")
+            console.print("="*70)
+            token = input("Pega tu Token de Bunkr: ").strip()
 
-    if not os.path.exists(target_dir):
+    if not token:
+        console.print("[bold red]❌ Se requiere un Token válido para subir a Bunkr.[/bold red]")
+        return
+
+    # Validar token
+    console.print("[cyan]🔍 Verificando conexión con Bunkr...[/cyan]")
+    if not validate_token(token):
+        console.print("[bold red]❌ El Token proporcionado es inválido o expiró. Por favor verifica tus credenciales.[/bold red]")
+        return
+
+    cfg["token"] = token
+
+    # 2. Configuración de Carpeta
+    target_dir = args.folder
+    if not target_dir:
+        saved_folder = cfg.get("last_folder", "")
+        if saved_folder and os.path.exists(saved_folder):
+            console.print(f"\n📁 [bold yellow]Carpeta de videos[/bold yellow] (Presiona [bold green]Enter[/bold green] para usar la ruta guardada):")
+            console.print(f"[dim]{saved_folder}[/dim]")
+            folder_input = input("Ruta > ").strip().strip('"').strip("'")
+            target_dir = folder_input if folder_input else saved_folder
+        else:
+            console.print("\n📁 [bold yellow]Carpeta con los videos a subir:[/bold yellow]")
+            target_dir = input("Ruta > ").strip().strip('"').strip("'")
+
+    if not target_dir or not os.path.exists(target_dir):
         console.print(f"[bold red]❌ La carpeta especificada no existe: {target_dir}[/bold red]")
         return
 
-    # 2. Escanear videos locales
+    cfg["last_folder"] = target_dir
+
+    # 3. Selección de Álbum
+    album_id, album_name = select_album_flow(token, cfg, args.album)
+    cfg["last_album_id"] = album_id
+    cfg["last_album_name"] = album_name
+
+    # Guardar configuración actualizada
+    save_bunkr_config(cfg)
+
+    # 4. Escanear videos locales
     valid_exts = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".ts", ".webm"}
     all_videos = []
     for root, _, files in os.walk(target_dir):
@@ -238,10 +513,10 @@ def main():
     # Ordenar estrictamente del más grande al más chico
     all_videos.sort(key=lambda f: os.path.getsize(f), reverse=True)
 
-    # 3. Consultar historial local y online
-    console.print(f"\n🔍 Comprobando qué videos ya están en tu álbum [cyan]{DEFAULT_ALBUM_NAME}[/cyan]...")
+    # 5. Consultar historial local y online
+    console.print(f"\n🔍 Comprobando qué videos ya están en tu álbum [cyan]{album_name}[/cyan]...")
     local_history = load_local_history(target_dir)
-    online_files = fetch_online_album_files(DEFAULT_TOKEN, DEFAULT_ALBUM_ID)
+    online_files = fetch_online_album_files(token, album_id)
 
     to_upload = []
     already_uploaded = []
@@ -250,7 +525,6 @@ def main():
         v_name = os.path.basename(v_path)
         if v_name in local_history or v_name in online_files:
             already_uploaded.append(v_path)
-            # Asegurar sincronización local
             if v_name not in local_history:
                 local_history[v_name] = {"uploaded_at": time.time(), "size": os.path.getsize(v_path)}
         else:
@@ -260,28 +534,30 @@ def main():
 
     total_pending_bytes = sum(os.path.getsize(f) for f in to_upload)
 
-    console.print(f"📊 [bold cyan]ESTADO DE LA SUBIDA:[/bold cyan]")
+    console.print(f"\n📊 [bold cyan]ESTADO DE LA SUBIDA:[/bold cyan]")
+    console.print(f"  • Álbum Destino: [bold green]{album_name}[/bold green] (ID: {album_id})")
     console.print(f"  • Total videos en carpeta: [bold white]{len(all_videos)}[/bold white]")
     console.print(f"  • Ya subidos previamente: [bold green]{len(already_uploaded)}[/bold green] (se omitirán)")
     console.print(f"  • [bold yellow]Pendientes por subir:[/bold yellow] [bold green]{len(to_upload)} videos[/bold green] ([bold cyan]{format_bytes(total_pending_bytes)}[/bold cyan])\n")
 
     if not to_upload:
         console.print(Panel(
-            f"[bold green]🎉 ¡Todos los videos de esta carpeta ya están subidos a tu álbum {DEFAULT_ALBUM_NAME}![/bold green]",
+            f"[bold green]🎉 ¡Todos los videos de esta carpeta ya están subidos a tu álbum '{album_name}'![/bold green]",
             border_style="green"
         ))
         return
 
     # Obtener nodo inicial de subida
     console.print("🌐 Conectando con los servidores de Bunkr...")
-    active_node = get_active_node(DEFAULT_TOKEN)
+    active_node = get_active_node(token)
     console.print(f"✅ Servidor asignado: [bold cyan]{active_node}[/bold cyan]\n")
 
-    console.print(f"[bold green]¿Iniciar la subida de los {len(to_upload)} videos pendientes? (S/N):[/bold green] ", end="")
-    confirm = input().strip().lower()
-    if confirm not in ["s", "si", "y", "yes", ""]:
-        console.print("[yellow]Operación cancelada.[/yellow]")
-        return
+    if not args.yes:
+        console.print(f"[bold green]¿Iniciar la subida de los {len(to_upload)} videos pendientes? (S/N):[/bold green] ", end="")
+        confirm = input().strip().lower()
+        if confirm not in ["s", "si", "y", "yes", ""]:
+            console.print("[yellow]Operación cancelada por el usuario.[/yellow]")
+            return
 
     console.print(f"\n[bold green]🚀 Iniciando subidas uno por uno (de mayor a menor peso)...[/bold green]\n")
 
@@ -318,13 +594,13 @@ def main():
                     while not success:
                         attempts += 1
                         try:
-                            success = upload_single_file(active_node, DEFAULT_TOKEN, DEFAULT_ALBUM_ID, file_path)
+                            success = upload_single_file(active_node, token, album_id, file_path)
                             if not success:
                                 time.sleep(3)
                         except Exception:
                             time.sleep(3)
                             if attempts % 3 == 0:
-                                active_node = get_active_node(DEFAULT_TOKEN)
+                                active_node = get_active_node(token)
                 else:
                     # Subida por chunks con progreso visual
                     def on_chunk(curr, total, chunk_len, f_size, att):
@@ -332,8 +608,8 @@ def main():
 
                     success, active_node = upload_chunked_file(
                         active_node,
-                        DEFAULT_TOKEN,
-                        DEFAULT_ALBUM_ID,
+                        token,
+                        album_id,
                         file_path,
                         progress_callback=on_chunk
                     )
@@ -345,7 +621,7 @@ def main():
                     local_history[file_name] = {
                         "uploaded_at": time.time(),
                         "size": file_size,
-                        "album_id": DEFAULT_ALBUM_ID
+                        "album_id": album_id
                     }
                     save_local_history(target_dir, local_history)
                     speed = (file_size / elapsed) if elapsed > 0 else 0
@@ -372,7 +648,7 @@ def main():
     summary_table.add_column("Métrica", style="bold cyan")
     summary_table.add_column("Valor", style="bold white")
 
-    summary_table.add_row("Álbum destino", DEFAULT_ALBUM_NAME)
+    summary_table.add_row("Álbum destino", album_name)
     summary_table.add_row("Videos subidos en esta sesión", f"{success_count} de {len(to_upload)}")
     summary_table.add_row("Datos transferidos con éxito", format_bytes(total_pending_bytes))
     summary_table.add_row("Tiempo total transcurrido", f"{total_time / 60:.1f} minutos")
@@ -380,6 +656,7 @@ def main():
     console.print("\n")
     console.print(summary_table)
     console.print("\n[bold green]✅ Todos los videos pendientes han sido subidos exitosamente a Bunkr.[/bold green]\n")
+
 
 if __name__ == "__main__":
     main()

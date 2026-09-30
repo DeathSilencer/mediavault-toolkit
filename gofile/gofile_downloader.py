@@ -131,7 +131,32 @@ from rich.progress import (
 
 console = Console(force_terminal=True)
 
-BASE_DEFAULT_DIR = r"D:\Armando\$1 Corel\$ 2FBK\Fotos cuentas\Alma\Nueva Carpeta\Models"
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".gofile_config.json")
+
+def load_gofile_config() -> dict:
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_gofile_config(cfg: dict):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+def get_default_base_dir() -> str:
+    cfg = load_gofile_config()
+    saved = cfg.get("base_download_dir")
+    if saved and os.path.exists(saved):
+        return saved
+    if os.path.exists("D:\\"):
+        return os.path.join("D:\\", "MediaVault_Downloads")
+    return os.path.join(os.path.expanduser("~"), "Downloads", "MediaVault")
 
 
 def find_ffmpeg():
@@ -379,12 +404,17 @@ def process_gofile_download(raw_url: str, custom_output: str = None, workers: in
     folder_title = sanitize_folder_name(manager.folder_name)
 
     if not custom_output:
-        suggested_dir = os.path.join(BASE_DEFAULT_DIR, folder_title)
+        base_dir = get_default_base_dir()
+        suggested_dir = os.path.join(base_dir, folder_title)
         console.print(f"\n[bold green]📁 Carpeta de destino:[/bold green] [yellow]{suggested_dir}[/yellow]")
-        user_dest = console.input("[bold white]Presiona ENTER para usar esa carpeta, o escribe otra ruta: [/bold white]").strip()
+        user_dest = console.input("[bold white]Presiona ENTER para usar esa carpeta, o escribe otra ruta: [/bold white]").strip().strip('"').strip("'")
         output_dir = os.path.abspath(user_dest) if user_dest else os.path.abspath(suggested_dir)
     else:
         output_dir = os.path.abspath(custom_output)
+
+    cfg = load_gofile_config()
+    cfg["base_download_dir"] = os.path.dirname(output_dir)
+    save_gofile_config(cfg)
 
     os.makedirs(output_dir, exist_ok=True)
     convert_existing_movs(output_dir)
