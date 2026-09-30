@@ -52,7 +52,8 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | **Gofile Downloader** | `Gofile.io` | Descargas paralelas para romper límite de 3.5 MB/s, auto-tokens con Chromium headless, auto-MP4. | Multihilo |
 | **Pixeldrain Downloader** | `Pixeldrain.com` | Monitoreo en vivo de cuota por WebSockets, pausa preventiva antes de saturar 6 GB, cambio de VPN en caliente. | Asíncrono |
-| **Video Compressor** | Colecciones locales | Reducción de 50-65% de espacio, calidad visual indistinguible, verificación `ffprobe` y exclusión de archivos `.M`. | GPU NVIDIA NVENC |
+| **Video Compressor** | Colecciones locales | Reducción de 50-65% de espacio, calidad visual indistinguible, verificación `ffprobe` y memoria de reanudación. | GPU NVIDIA NVENC |
+| **Bunkr Uploader** | `Bunkr.cr` | Subida de mayor a menor, chunks de 95 MB, reintentos infinitos si se congela o da 0, anti-duplicados por álbum. | Chunks / API |
 
 ---
 
@@ -82,6 +83,8 @@ MediaVault-Toolkit/
 │   ├── comprimir_videos.bat       # Lanzador rápido de compresión
 │   └── README.md                  # Documentación técnica de algoritmos y perfiles
 │
+├── bunkr_uploader.py              # Bot subidor masivo a Bunkr con chunks y reintentos
+├── subir_bunkr.bat                # Lanzador rápido de subida a Bunkr
 ├── comprimir_videos.bat           # Acceso directo raíz al compresor
 ├── gofile_downloader.py           # Enlace raíz para conveniencia
 ├── iniciar_descarga.bat           # Enlace raíz para conveniencia
@@ -166,6 +169,24 @@ Diseñado para optimizar colecciones masivas de video reduciendo su peso entre u
 ```cmd
 # Ejecución directa:
 comprimir_videos.bat
+```
+
+---
+
+### 4. ☁️ Bunkr Ultra Uploader (Reintentos Infinitos)
+*Archivo:* [`bunkr_uploader.py`](bunkr_uploader.py)
+
+Diseñado para resolver los problemas de congelamiento (0%), caída de sockets y errores de servidor al subir colecciones a **Bunkr.cr**.
+
+- **Orden Descendente:** Prioriza los archivos más pesados primero (uno por uno).
+- **Protocolo de Chunks (95 MB):** Divide los archivos en bloques estándar de 95 MB para máxima compatibilidad con los nodos de Bunkr.
+- **Reintentos Infinitos Anti-Error:** Si un bloque se congela o da error (500/502/timeout), el bot reintenta automáticamente ese bloque hasta que se complete al 100%.
+- **Rotación de Servidor:** Si un nodo de subida está caído, consulta automáticamente a la API de Bunkr y cambia a un nodo activo en caliente.
+- **Anti-Duplicados por Álbum:** Sincroniza en vivo con tu álbum y mantiene un registro local (`.bunkr_upload_history.json`) para nunca re-subir videos existentes.
+
+```cmd
+# Ejecución directa:
+subir_bunkr.bat
 ```
 
 ---
