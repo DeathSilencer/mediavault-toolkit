@@ -22,6 +22,7 @@
    - [1. Descargador Gofile](#1--gofile-ultra-batch-downloader)
    - [2. Descargador Pixeldrain](#2--pixeldrain-smart-quota-downloader)
    - [3. Compresor Masivo por GPU](#3--compresor-masivo-por-hardware-gpu-nvenc)
+   - [4. Subidor Masivo a Bunkr](#4--bunkr-ultra-uploader-reintentos-infinitos)
 5. [Guía de Nube y Empaquetado RAR](#-guía-de-nube-y-empaquetado-rar)
 6. [Detección y Limpieza de Duplicados](#-detección-y-limpieza-de-duplicados)
 7. [Licencia](#-licencia)
@@ -44,8 +45,10 @@ flowchart TD
     F --> G["📁 Colección en Disco Local"]
     
     G --> H["⚡ Compresor por Hardware (NVIDIA NVENC)"]
-    H -->|"HEVC CQ 29 + Triple Validación ffprobe (-50% a -65% tamaño)"| I["📦 Videos Comprimidos Optimizados"]
-    I --> J["☁️ Respaldo en Nube / RAR"]
+    H -->|"HEVC CQ 29 + Triple Validación ffprobe (-55.8% tamaño)"| I["📦 Videos Comprimidos Optimizados"]
+    
+    I --> J["☁️ Bunkr.cr Uploader (Chunks 95MB + Reintentos Infinitos)"]
+    I --> K["📦 Respaldo Local / RAR"]
 ```
 
 | Módulo | Plataforma / Función | Características Clave | Aceleración |
@@ -66,29 +69,27 @@ MediaVault-Toolkit/
 ├── requirements.txt               # Dependencias de Python (requests, rich, websockets, playwright)
 ├── .gitignore                     # Filtros para git (temporales, binarios, caches)
 ├── LICENSE                        # Licencia abierta MIT
-├── launcher.bat                   # Menú unificado interactivo para Windows
+├── launcher.bat                   # Menú unificado interactivo para Windows (Panel Supremo)
 │
 ├── gofile/                        # Módulo para Gofile.io
 │   ├── gofile_downloader.py       # Script principal de descarga con Playwright
-│   ├── iniciar_descarga.bat       # Lanzador rápido de un solo clic
+│   ├── iniciar_descarga.bat       # Lanzador directo para Gofile
 │   └── README.md                  # Documentación específica de Gofile
 │
 ├── pixeldrain/                    # Módulo para Pixeldrain.com
 │   ├── pixeldrain_downloader.py   # Script con monitoreo de cuota WebSocket
-│   ├── iniciar_pixeldrain.bat     # Lanzador rápido de un solo clic
+│   ├── iniciar_pixeldrain.bat     # Lanzador directo para Pixeldrain
 │   └── README.md                  # Documentación específica de Pixeldrain
 │
 ├── compressor/                    # Módulo de Compresión por Hardware
 │   ├── video_compressor.py        # Motor de compresión NVENC HEVC / CPU libx265
-│   ├── comprimir_videos.bat       # Lanzador rápido de compresión
+│   ├── comprimir_videos.bat       # Lanzador directo para compresión
 │   └── README.md                  # Documentación técnica de algoritmos y perfiles
 │
-├── bunkr_uploader.py              # Bot subidor masivo a Bunkr con chunks y reintentos
-├── subir_bunkr.bat                # Lanzador rápido de subida a Bunkr
-├── comprimir_videos.bat           # Acceso directo raíz al compresor
-├── gofile_downloader.py           # Enlace raíz para conveniencia
-├── iniciar_descarga.bat           # Enlace raíz para conveniencia
-└── video_compressor.py            # Enlace raíz para conveniencia
+└── bunkr/                         # Módulo de Subida Masiva a Bunkr.cr
+    ├── bunkr_uploader.py          # Script con subida por chunks y reintentos infinitos
+    ├── subir_bunkr.bat            # Lanzador directo para Bunkr
+    └── README.md                  # Documentación técnica específica de Bunkr
 ```
 
 ---
@@ -129,7 +130,10 @@ Gofile limita las conexiones individuales a aproximadamente 3.5 MB/s. Este bot r
 
 ```cmd
 # Ejecución directa:
-iniciar_descarga.bat
+gofile\iniciar_descarga.bat
+
+# O desde el panel central (Raíz):
+launcher.bat (Opción 1)
 ```
 
 ---
@@ -145,7 +149,10 @@ Pixeldrain impone una cuota de 6 GB por día ligada a la dirección IP pública.
 
 ```cmd
 # Ejecución directa:
-iniciar_pixeldrain.bat
+pixeldrain\iniciar_pixeldrain.bat
+
+# O desde el panel central (Raíz):
+launcher.bat (Opción 2)
 ```
 
 ---
@@ -168,13 +175,16 @@ Diseñado para optimizar colecciones masivas de video reduciendo su peso entre u
 
 ```cmd
 # Ejecución directa:
-comprimir_videos.bat
+compressor\comprimir_videos.bat
+
+# O desde el panel central (Raíz):
+launcher.bat (Opción 3)
 ```
 
 ---
 
 ### 4. ☁️ Bunkr Ultra Uploader (Reintentos Infinitos)
-*Archivo:* [`bunkr_uploader.py`](bunkr_uploader.py)
+*Ubicación:* [`bunkr/`](bunkr/)
 
 Diseñado para resolver los problemas de congelamiento (0%), caída de sockets y errores de servidor al subir colecciones a **Bunkr.cr**.
 
@@ -186,7 +196,10 @@ Diseñado para resolver los problemas de congelamiento (0%), caída de sockets y
 
 ```cmd
 # Ejecución directa:
-subir_bunkr.bat
+bunkr\subir_bunkr.bat
+
+# O desde el panel central (Raíz):
+launcher.bat (Opción 4)
 ```
 
 ---
