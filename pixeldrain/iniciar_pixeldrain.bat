@@ -1,20 +1,19 @@
 @echo off
-chcp 65001 > nul
 title Descargador Pixeldrain - Modo Universal
 
-:: 1. Verificar si Python está instalado
+:: 1. Verificar si Python esta instalado
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo ========================================================
     echo  [!] Python no detectado en el sistema.
-    echo  [!] Intentando instalar Python automaticamente...
+    echo  [*] Intentando instalar Python automaticamente...
     echo ========================================================
     winget install --id Python.Python.3.11 -e --accept-source-agreements --accept-package-agreements
     if %errorlevel% neq 0 (
         echo [X] No se pudo instalar Python de forma automatica.
         echo Descargalo manualmente desde: https://www.python.org/
         pause
-        exit /b
+        exit /b 1
     )
 )
 

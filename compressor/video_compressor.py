@@ -37,12 +37,66 @@ def save_compressor_config(cfg: dict):
     except Exception:
         pass
 
+import urllib.request
+import zipfile
+
+def ensure_ffmpeg():
+    """Verifica e instala automáticamente FFmpeg/ffprobe si faltan en el sistema."""
+    if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+        return
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(script_dir)
+    possible_bins = [
+        os.path.join(script_dir, "bin"),
+        os.path.join(root_dir, "bin")
+    ]
+    for b in possible_bins:
+        if os.path.exists(os.path.join(b, "ffmpeg.exe")):
+            os.environ["PATH"] = b + os.pathsep + os.environ.get("PATH", "")
+            if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+                return
+
+    if shutil.which("winget"):
+        try:
+            print("🎬 FFmpeg no detectado en el sistema. Instalando automáticamente con Winget...")
+            subprocess.run(
+                ["winget", "install", "--id", "Gyan.FFmpeg", "-e", "--accept-source-agreements", "--accept-package-agreements"],
+                capture_output=True, text=True
+            )
+            if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+                print("✅ FFmpeg instalado vía Winget.")
+                return
+        except Exception:
+            pass
+
+    try:
+        target_bin = os.path.join(root_dir, "bin")
+        os.makedirs(target_bin, exist_ok=True)
+        print("⬇️ Descargando versión portable de FFmpeg...")
+        zip_url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+        zip_path = os.path.join(target_bin, "ffmpeg.zip")
+        urllib.request.urlretrieve(zip_url, zip_path)
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            for member in zf.namelist():
+                if member.endswith("ffmpeg.exe") or member.endswith("ffprobe.exe"):
+                    filename = os.path.basename(member)
+                    with zf.open(member) as source, open(os.path.join(target_bin, filename), "wb") as target:
+                        shutil.copyfileobj(source, target)
+        os.remove(zip_path)
+        os.environ["PATH"] = target_bin + os.pathsep + os.environ.get("PATH", "")
+        print("✅ FFmpeg portable configurado en bin/.")
+    except Exception as e:
+        print(f"⚠️ No se pudo auto-descargar FFmpeg: {e}")
+
 # Auto-instalar dependencias básicas si faltan
 for pkg in ["rich"]:
     try:
         __import__(pkg)
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
+
+ensure_ffmpeg()
 
 # Forzar codificación UTF-8 en consola de Windows
 if sys.platform.startswith("win"):
