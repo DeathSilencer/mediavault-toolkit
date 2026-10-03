@@ -1,5 +1,5 @@
 @echo off
-title Bot Subidor a Bunkr (Modo Universal y Personalizable)
+title Bot Subidor a Bunkr (Universal - Videos y RAR)
 
 :: Verificacion e instalacion automatica de Python si no existe
 python --version >nul 2>&1
@@ -19,10 +19,11 @@ if %errorlevel% neq 0 (
 
 echo ========================================================
 echo        BOT SUBIDOR AUTOMATICO A BUNKR.CR (UNIVERSAL)
+echo   - Soporte: Videos (.MP4, .MKV) y Archivos (.RAR, .ZIP, .7Z)
 echo   - Personalizable: Token, Album y Carpetas dinamicos
-echo   - Orden: Del mas grande al mas chico (uno por uno)
+echo   - Deteccion automatica de volumenes divididos (part01...part99)
 echo   - Reintentos continuos si se traba en 0%% o falla
-echo   - Deteccion de videos ya subidos para no duplicar
+echo   - Deteccion de archivos ya subidos para no duplicar
 echo ========================================================
 echo.
 

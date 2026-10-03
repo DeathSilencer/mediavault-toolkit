@@ -55,7 +55,7 @@ echo.
 echo   [1] Descargador de Gofile (Multi-conexiones y Auto-MP4)
 echo   [2] Descargador de Pixeldrain (Cuota 6GB y VPN Hot-Swap)
 echo   [3] Compresor Masivo de Video por GPU (NVIDIA RTX / NVENC)
-echo   [4] Subidor Automatico a Bunkr (Reintentos Infinitos)
+echo   [4] Subidor Automatico a Bunkr (Videos, RAR y Chunks 95MB)
 echo   [5] Salir
 echo.
 echo ========================================================

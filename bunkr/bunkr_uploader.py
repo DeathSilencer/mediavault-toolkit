@@ -1,11 +1,11 @@
 """
 Bunkr Ultra Uploader Bot (Subida Inteligente Universal y Personalizable)
 ----------------------------------------------------------------------
+- Soporte universal para Videos (.mp4, .mkv, .mov, etc.) y Archivos comprimidos (.rar, .zip, .7z, etc.).
+- Detección inteligente de volúmenes divididos (.part01.rar ➔ .part99.rar) con subida secuencial automática.
 - Cero valores hardcodeados: Token, álbum y carpeta 100% configurables e interactivos.
 - Memoria de configuración local (.bunkr_config.json) para no tener que escribir todo de nuevo.
 - Consulta dinámica de álbumes en tu cuenta Bunkr (seleccionar, buscar o crear nuevo álbum).
-- Sube videos automáticamente a Bunkr.cr asignándolos al álbum especificado.
-- Orden de subida: Del más grande al más chico (uno por uno).
 - Protocolo por chunks (95 MB) con reintentos infinitos si se congela o da error.
 - Detección de servidor activo con rotación automática de nodos caídos.
 - Memoria de subida (.bunkr_upload_history.json) y sincronización con el álbum online para evitar duplicados.
@@ -19,6 +19,8 @@ import uuid
 import shutil
 import argparse
 import subprocess
+import re
+import mimetypes
 import requests
 
 # Auto-instalar dependencias básicas si faltan
@@ -52,6 +54,46 @@ console = Console()
 
 CHUNK_SIZE = 95 * 1000 * 1000  # 95 MB por bloque estándar de Bunkr
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bunkr_config.json")
+
+# Mapeo de tipos MIME para archivos y videos
+MIME_MAP = {
+    ".rar": "application/x-rar-compressed",
+    ".zip": "application/zip",
+    ".7z": "application/x-7z-compressed",
+    ".tar": "application/x-tar",
+    ".gz": "application/gzip",
+    ".bz2": "application/x-bzip2",
+    ".xz": "application/x-xz",
+    ".iso": "application/x-iso9660-image",
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".m4v": "video/x-m4v",
+    ".mkv": "video/x-matroska",
+    ".avi": "video/x-msvideo",
+    ".webm": "video/webm",
+    ".ts": "video/mp2t",
+    ".wmv": "video/x-ms-wmv",
+    ".flv": "video/x-flv",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
+def get_mime_type(file_path: str) -> str:
+    """Devuelve el tipo MIME apropiado para el archivo."""
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in MIME_MAP:
+        return MIME_MAP[ext]
+    guess, _ = mimetypes.guess_type(file_path)
+    return guess or "application/octet-stream"
+
+
+def natural_sort_key(s: str):
+    """Clave de ordenamiento natural (humano) para ordenar correctamente part01, part02, etc."""
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
 
 
 def load_bunkr_config() -> dict:
@@ -181,13 +223,14 @@ def fetch_online_album_files(token: str, album_id: int) -> set:
 def upload_single_file(node_url: str, token: str, album_id: int, file_path: str) -> bool:
     """Sube un archivo menor a 95 MB de forma directa en una sola petición."""
     file_name = os.path.basename(file_path)
+    mime_type = get_mime_type(file_path)
     headers = {
         "token": token,
         "albumid": str(album_id),
         "User-Agent": "Mozilla/5.0"
     }
     with open(file_path, "rb") as f:
-        files = {"files[]": (file_name, f, "video/mp4")}
+        files = {"files[]": (file_name, f, mime_type)}
         r = requests.post(node_url, headers=headers, files=files, timeout=180)
         return r.status_code == 200 and r.json().get("success", False)
 
@@ -204,6 +247,7 @@ def upload_chunked_file(
     Si un chunk falla o se congela, se reintenta hasta tener éxito.
     """
     file_name = os.path.basename(file_path)
+    mime_type = get_mime_type(file_path)
     file_size = os.path.getsize(file_path)
     total_chunks = (file_size + CHUNK_SIZE - 1) // CHUNK_SIZE
     file_uuid = str(uuid.uuid4())
@@ -229,7 +273,7 @@ def upload_chunked_file(
             while not chunk_success:
                 attempts += 1
                 try:
-                    files = {"files[]": (file_name, chunk_data, "video/mp4")}
+                    files = {"files[]": (file_name, chunk_data, mime_type)}
                     r = requests.post(
                         node_url,
                         headers=headers,
@@ -269,7 +313,7 @@ def upload_chunked_file(
             {
                 "uuid": file_uuid,
                 "original": file_name,
-                "type": "video/mp4",
+                "type": mime_type,
                 "albumid": int(album_id)
             }
         ]
@@ -337,7 +381,6 @@ def select_album_flow(token: str, cfg: dict, arg_album: str = None) -> tuple[int
     console.print("\n" + "─"*70)
     console.print("[bold cyan]📂 SELECCIÓN DEL ÁLBUM DESTINO EN BUNKR[/bold cyan]")
 
-    default_choice = "1"
     if saved_album_id:
         console.print(f"[bold green]1.[/bold green] Usar álbum guardado: [bold white]{saved_album_name}[/bold white] [dim](ID: {saved_album_id})[/dim] [green][Recomendado - Presiona ENTER][/green]")
         console.print(f"[bold green]2.[/bold green] Elegir de mis álbumes en Bunkr ({len(all_albums)} encontrados)")
@@ -422,22 +465,23 @@ def select_album_flow(token: str, cfg: dict, arg_album: str = None) -> tuple[int
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Bot Subidor Masivo a Bunkr con Reintentos Infinitos")
+    parser = argparse.ArgumentParser(description="Bot Subidor Masivo a Bunkr (Videos & Archivos RAR/ZIP) con Reintentos Infinitos")
     parser.add_argument("--token", "-t", default=None, help="Token de autenticación de Bunkr")
     parser.add_argument("--album", "-a", default=None, help="ID, enlace o nombre del álbum destino")
-    parser.add_argument("--folder", "-f", default=None, help="Carpeta que contiene los videos a subir")
+    parser.add_argument("--folder", "-f", default=None, help="Carpeta que contiene los archivos a subir")
     parser.add_argument("--yes", "-y", action="store_true", help="Iniciar subida sin confirmación interactiva")
     args = parser.parse_args()
 
     cfg = load_bunkr_config()
 
     console.print(Panel(
-        "[bold cyan]🚀 BOT SUBIDOR MASIVO A BUNKR (UNIVERSAL & PERSONALIZABLE)[/bold cyan]\n"
-        "[white]• [bold green]100% Configurable:[/bold green] Token, álbum y carpetas sin código hardcodeado.\n"
+        "[bold cyan]🚀 BOT SUBIDOR MASIVO A BUNKR (VIDEOS & ARCHIVOS COMPRIMIDOS RAR/ZIP)[/bold cyan]\n"
+        "[white]• [bold green]Formatos Soportados:[/bold green] Videos (.mp4, .mkv, .mov) y Archivos (.rar, .zip, .7z, etc.).\n"
+        "• [bold green]Partes Divididas:[/bold green] Detecta automáticamente volúmenes secuenciales (part01 ➔ part99).\n"
+        "• [bold green]100% Configurable:[/bold green] Token, álbum y carpetas sin código hardcodeado.\n"
         "• [bold green]Memoria Inteligente:[/bold green] Recuerda tus configuraciones con [Enter].\n"
         "• [bold green]Reintentos Infinitos:[/bold green] Si un chunk se traba o da error, reintenta sin parar.\n"
-        "• [bold green]Anti-Duplicados:[/bold green] Sincroniza con el historial local y con tu álbum en Bunkr.\n"
-        "• [bold green]Orden Eficiente:[/bold green] Sube del video más pesado al más ligero.[/white]",
+        "• [bold green]Anti-Duplicados:[/bold green] Sincroniza con el historial local y con tu álbum en Bunkr.[/white]",
         border_style="cyan"
     ))
 
@@ -475,12 +519,12 @@ def main():
     if not target_dir:
         saved_folder = cfg.get("last_folder", "")
         if saved_folder and os.path.exists(saved_folder):
-            console.print(f"\n📁 [bold yellow]Carpeta de videos[/bold yellow] (Presiona [bold green]Enter[/bold green] para usar la ruta guardada):")
+            console.print(f"\n📁 [bold yellow]Carpeta de archivos/videos[/bold yellow] (Presiona [bold green]Enter[/bold green] para usar la ruta guardada):")
             console.print(f"[dim]{saved_folder}[/dim]")
             folder_input = input("Ruta > ").strip().strip('"').strip("'")
             target_dir = folder_input if folder_input else saved_folder
         else:
-            console.print("\n📁 [bold yellow]Carpeta con los videos a subir:[/bold yellow]")
+            console.print("\n📁 [bold yellow]Carpeta con los archivos o videos a subir:[/bold yellow]")
             target_dir = input("Ruta > ").strip().strip('"').strip("'")
 
     if not target_dir or not os.path.exists(target_dir):
@@ -497,31 +541,49 @@ def main():
     # Guardar configuración actualizada
     save_bunkr_config(cfg)
 
-    # 4. Escanear videos locales
-    valid_exts = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".ts", ".webm"}
-    all_videos = []
+    # 4. Escanear archivos locales (Videos, Comprimidos RAR/ZIP/7Z e Imágenes)
+    valid_exts = {
+        # Archivos comprimidos y volúmenes divididos
+        ".rar", ".zip", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso",
+        # Videos
+        ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".ts", ".webm", ".wmv", ".flv",
+        # Imágenes
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"
+    }
+    all_files = []
     for root, _, files in os.walk(target_dir):
         for f in files:
             ext = os.path.splitext(f)[1].lower()
-            if ext in valid_exts and not f.startswith("._") and not f.endswith(".tmp.mp4"):
-                all_videos.append(os.path.join(root, f))
+            if ext in valid_exts and not f.startswith("._") and not f.endswith(".tmp.mp4") and not f.endswith(".tmp"):
+                all_files.append(os.path.join(root, f))
 
-    if not all_videos:
-        console.print("[bold yellow]⚠️ No se encontraron videos compatibles en esta carpeta.[/bold yellow]")
+    if not all_files:
+        console.print("[bold yellow]⚠️ No se encontraron archivos compatibles (.mp4, .rar, .zip, etc.) en esta carpeta.[/bold yellow]")
         return
 
-    # Ordenar estrictamente del más grande al más chico
-    all_videos.sort(key=lambda f: os.path.getsize(f), reverse=True)
+    # Detectar si son partes divididas de un archivo comprimido (ej: .part01.rar, .part02.rar, etc.)
+    is_split_archive = len(all_files) > 1 and all(
+        bool(re.search(r'\.(part\d+|r\d+|z\d+)(\.rar|\.zip)?$', os.path.basename(f), re.IGNORECASE))
+        for f in all_files
+    )
+
+    if is_split_archive:
+        all_files.sort(key=lambda f: natural_sort_key(os.path.basename(f)))
+        sort_mode_desc = "Secuencial ordenado por partes (part01 ➔ part99)"
+    else:
+        # Ordenar estrictamente del más grande al más chico, y por nombre natural si empatan
+        all_files.sort(key=lambda f: (-os.path.getsize(f), natural_sort_key(os.path.basename(f))))
+        sort_mode_desc = "Del más grande al más chico (por peso)"
 
     # 5. Consultar historial local y online
-    console.print(f"\n🔍 Comprobando qué videos ya están en tu álbum [cyan]{album_name}[/cyan]...")
+    console.print(f"\n🔍 Comprobando qué archivos ya están en tu álbum [cyan]{album_name}[/cyan]...")
     local_history = load_local_history(target_dir)
     online_files = fetch_online_album_files(token, album_id)
 
     to_upload = []
     already_uploaded = []
 
-    for v_path in all_videos:
+    for v_path in all_files:
         v_name = os.path.basename(v_path)
         if v_name in local_history or v_name in online_files:
             already_uploaded.append(v_path)
@@ -536,13 +598,14 @@ def main():
 
     console.print(f"\n📊 [bold cyan]ESTADO DE LA SUBIDA:[/bold cyan]")
     console.print(f"  • Álbum Destino: [bold green]{album_name}[/bold green] (ID: {album_id})")
-    console.print(f"  • Total videos en carpeta: [bold white]{len(all_videos)}[/bold white]")
+    console.print(f"  • Total archivos en carpeta: [bold white]{len(all_files)}[/bold white]")
     console.print(f"  • Ya subidos previamente: [bold green]{len(already_uploaded)}[/bold green] (se omitirán)")
-    console.print(f"  • [bold yellow]Pendientes por subir:[/bold yellow] [bold green]{len(to_upload)} videos[/bold green] ([bold cyan]{format_bytes(total_pending_bytes)}[/bold cyan])\n")
+    console.print(f"  • [bold yellow]Pendientes por subir:[/bold yellow] [bold green]{len(to_upload)} archivos[/bold green] ([bold cyan]{format_bytes(total_pending_bytes)}[/bold cyan])")
+    console.print(f"  • Orden de procesamiento: [bold cyan]{sort_mode_desc}[/bold cyan]\n")
 
     if not to_upload:
         console.print(Panel(
-            f"[bold green]🎉 ¡Todos los videos de esta carpeta ya están subidos a tu álbum '{album_name}'![/bold green]",
+            f"[bold green]🎉 ¡Todos los archivos de esta carpeta ya están subidos a tu álbum '{album_name}'![/bold green]",
             border_style="green"
         ))
         return
@@ -553,13 +616,13 @@ def main():
     console.print(f"✅ Servidor asignado: [bold cyan]{active_node}[/bold cyan]\n")
 
     if not args.yes:
-        console.print(f"[bold green]¿Iniciar la subida de los {len(to_upload)} videos pendientes? (S/N):[/bold green] ", end="")
+        console.print(f"[bold green]¿Iniciar la subida de los {len(to_upload)} archivos pendientes? (S/N):[/bold green] ", end="")
         confirm = input().strip().lower()
         if confirm not in ["s", "si", "y", "yes", ""]:
             console.print("[yellow]Operación cancelada por el usuario.[/yellow]")
             return
 
-    console.print(f"\n[bold green]🚀 Iniciando subidas uno por uno (de mayor a menor peso)...[/bold green]\n")
+    console.print(f"\n[bold green]🚀 Iniciando subidas uno por uno...[/bold green]\n")
 
     success_count = 0
     start_time = time.time()
@@ -576,7 +639,7 @@ def main():
             TimeRemainingColumn(),
             console=console
         ) as progress:
-            task_total = progress.add_task("[cyan]Subiendo videos...", total=len(to_upload))
+            task_total = progress.add_task("[cyan]Subiendo archivos...", total=len(to_upload))
 
             for idx, file_path in enumerate(to_upload, 1):
                 file_name = os.path.basename(file_path)
@@ -636,7 +699,7 @@ def main():
 
     except KeyboardInterrupt:
         console.print("\n\n[bold yellow]⚠️ Subida pausada por el usuario (Ctrl+C).[/bold yellow]")
-        console.print("[green]💾 Los videos ya completados quedaron registrados en el historial.[/green]")
+        console.print("[green]💾 Los archivos ya completados quedaron registrados en el historial.[/green]")
         console.print("[white]Al volver a ejecutar, el bot continuará exactamente donde se quedó.[/white]\n")
         save_local_history(target_dir, local_history)
         return
@@ -649,13 +712,13 @@ def main():
     summary_table.add_column("Valor", style="bold white")
 
     summary_table.add_row("Álbum destino", album_name)
-    summary_table.add_row("Videos subidos en esta sesión", f"{success_count} de {len(to_upload)}")
+    summary_table.add_row("Archivos subidos en esta sesión", f"{success_count} de {len(to_upload)}")
     summary_table.add_row("Datos transferidos con éxito", format_bytes(total_pending_bytes))
     summary_table.add_row("Tiempo total transcurrido", f"{total_time / 60:.1f} minutos")
 
     console.print("\n")
     console.print(summary_table)
-    console.print("\n[bold green]✅ Todos los videos pendientes han sido subidos exitosamente a Bunkr.[/bold green]\n")
+    console.print("\n[bold green]✅ Todos los archivos pendientes han sido subidos exitosamente a Bunkr.[/bold green]\n")
 
 
 if __name__ == "__main__":
